@@ -131,6 +131,14 @@ class Integer(Type):
     query = query.NumericQuery
     model_type = int
 
+    def normalize(self, value):
+        try:
+            return self.model_type(round(float(value)))
+        except ValueError:
+            return self.null
+        except TypeError:
+            return self.null
+
 
 class PaddedInt(Integer):
     """An integer field that is formatted with a given number of digits,
@@ -198,6 +206,12 @@ class String(Type):
     """
     sql = u'TEXT'
     query = query.SubstringQuery
+
+    def normalize(self, value):
+        if value is None:
+            return self.null
+        else:
+            return self.model_type(value)
 
 
 class Boolean(Type):

@@ -40,14 +40,19 @@ else:
 log = logging.getLogger('beets')
 
 
-def resize_url(url, maxwidth):
+def resize_url(url, maxwidth, quality=0):
     """Return a proxied image URL that resizes the original image to
     maxwidth (preserving aspect ratio).
     """
-    return '{0}?{1}'.format(PROXY_URL, urlencode({
+    params = {
         'url': url.replace('http://', ''),
         'w': maxwidth,
-    }))
+    }
+
+    if quality > 0:
+        params['q'] = quality
+
+    return '{0}?{1}'.format(PROXY_URL, urlencode(params))
 
 
 def temp_file_for(path):
@@ -59,12 +64,13 @@ def temp_file_for(path):
         return util.bytestring_path(f.name)
 
 
-def pil_resize(maxwidth, path_in, path_out=None):
+def pil_resize(maxwidth, path_in, path_out=None, quality=0, max_filesize=0):
     """Resize using Python Imaging Library (PIL).  Return the output path
     of resized image.
     """
     path_out = path_out or temp_file_for(path_in)
     from PIL import Image
+
     log.debug(u'artresizer: PIL resizing {0} to {1}',
               util.displayable_path(path_in), util.displayable_path(path_out))
 
@@ -72,15 +78,49 @@ def pil_resize(maxwidth, path_in, path_out=None):
         im = Image.open(util.syspath(path_in))
         size = maxwidth, maxwidth
         im.thumbnail(size, Image.ANTIALIAS)
-        im.save(util.py3_path(path_out))
-        return path_out
+
+        if quality == 0:
+            # Use PIL's default quality.
+            quality = -1
+
+        im.save(util.py3_path(path_out), quality=quality)
+        if max_filesize > 0:
+            # If maximum filesize is set, we attempt to lower the quality of
+            # jpeg conversion by a proportional amount, up to 3 attempts
+            # First, set the maximum quality to either provided, or 95
+            if quality > 0:
+                lower_qual = quality
+            else:
+                lower_qual = 95
+            for i in range(5):
+                # 5 attempts is an abitrary choice
+                filesize = os.stat(util.syspath(path_out)).st_size
+                log.debug(u"PIL Pass {0} : Output size: {1}B", i, filesize)
+                if filesize <= max_filesize:
+                    return path_out
+                # The relationship between filesize & quality will be
+                # image dependent.
+                lower_qual -= 10
+                # Restrict quality dropping below 10
+                if lower_qual < 10:
+                    lower_qual = 10
+                # Use optimize flag to improve filesize decrease
+                im.save(
+                    util.py3_path(path_out), quality=lower_qual, optimize=True
+                )
+            log.warning(u"PIL Failed to resize file to below {0}B",
+                        max_filesize)
+            return path_out
+
+        else:
+            return path_out
     except IOError:
         log.error(u"PIL cannot create thumbnail for '{0}'",
                   util.displayable_path(path_in))
         return path_in
 
 
-def im_resize(maxwidth, path_in, path_out=None):
+def im_resize(maxwidth, path_in, path_out=None, quality=0, max_filesize=0):
     """Resize using ImageMagick.
 
     Use the ``magick`` program or ``convert`` on older versions. Return
@@ -93,10 +133,20 @@ def im_resize(maxwidth, path_in, path_out=None):
     # "-resize WIDTHx>" shrinks images with the width larger
     # than the given width while maintaining the aspect ratio
     # with regards to the height.
-    cmd = ArtResizer.shared.im_convert_cmd + \
-        [util.syspath(path_in, prefix=False),
-            '-resize', '{0}x>'.format(maxwidth),
-            util.syspath(path_out, prefix=False)]
+    cmd = ArtResizer.shared.im_convert_cmd + [
+        util.syspath(path_in, prefix=False),
+        '-resize', '{0}x>'.format(maxwidth),
+    ]
+
+    if quality > 0:
+        cmd += ['-quality', '{0}'.format(quality)]
+
+    # "-define jpeg:extent=SIZEb" sets the target filesize for imagemagick to
+    # SIZE in bytes.
+    if max_filesize > 0:
+        cmd += ['-define', 'jpeg:extent={0}b'.format(max_filesize)]
+
+    cmd.append(util.syspath(path_out, prefix=False))
 
     try:
         util.command_output(cmd)
@@ -116,6 +166,7 @@ BACKEND_FUNCS = {
 
 def pil_getsize(path_in):
     from PIL import Image
+
     try:
         im = Image.open(util.syspath(path_in))
         return im.size
@@ -156,6 +207,7 @@ class Shareable(type):
     lazily-created shared instance of ``MyClass`` while calling
     ``MyClass()`` to construct a new object works as usual.
     """
+
     def __init__(cls, name, bases, dict):
         super(Shareable, cls).__init__(name, bases, dict)
         cls._instance = None
@@ -190,18 +242,22 @@ class ArtResizer(six.with_metaclass(Shareable, object)):
                 self.im_convert_cmd = ['magick']
                 self.im_identify_cmd = ['magick', 'identify']
 
-    def resize(self, maxwidth, path_in, path_out=None):
+    def resize(
+        self, maxwidth, path_in, path_out=None, quality=0, max_filesize=0
+    ):
         """Manipulate an image file according to the method, returning a
         new path. For PIL or IMAGEMAGIC methods, resizes the image to a
-        temporary file. For WEBPROXY, returns `path_in` unmodified.
+        temporary file and encodes with the specified quality level.
+        For WEBPROXY, returns `path_in` unmodified.
         """
         if self.local:
             func = BACKEND_FUNCS[self.method[0]]
-            return func(maxwidth, path_in, path_out)
+            return func(maxwidth, path_in, path_out,
+                        quality=quality, max_filesize=max_filesize)
         else:
             return path_in
 
-    def proxy_url(self, maxwidth, url):
+    def proxy_url(self, maxwidth, url, quality=0):
         """Modifies an image URL according the method, returning a new
         URL. For WEBPROXY, a URL on the proxy server is returned.
         Otherwise, the URL is returned unmodified.
@@ -209,7 +265,7 @@ class ArtResizer(six.with_metaclass(Shareable, object)):
         if self.local:
             return url
         else:
-            return resize_url(url, maxwidth)
+            return resize_url(url, maxwidth, quality)
 
     @property
     def local(self):

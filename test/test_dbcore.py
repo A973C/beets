@@ -53,6 +53,7 @@ class ModelFixture1(dbcore.Model):
     _fields = {
         'id': dbcore.types.PRIMARY_ID,
         'field_one': dbcore.types.INTEGER,
+        'field_two': dbcore.types.STRING,
     }
     _types = {
         'some_float_field': dbcore.types.FLOAT,
@@ -224,6 +225,31 @@ class MigrationTest(unittest.TestCase):
             self.fail("select failed")
 
 
+class TransactionTest(unittest.TestCase):
+    def setUp(self):
+        self.db = DatabaseFixture1(':memory:')
+
+    def tearDown(self):
+        self.db._connection().close()
+
+    def test_mutate_increase_revision(self):
+        old_rev = self.db.revision
+        with self.db.transaction() as tx:
+            tx.mutate(
+                'INSERT INTO {0} '
+                '(field_one) '
+                'VALUES (?);'.format(ModelFixture1._table),
+                (111,),
+            )
+        self.assertGreater(self.db.revision, old_rev)
+
+    def test_query_no_increase_revision(self):
+        old_rev = self.db.revision
+        with self.db.transaction() as tx:
+            tx.query('PRAGMA table_info(%s)' % ModelFixture1._table)
+        self.assertEqual(self.db.revision, old_rev)
+
+
 class ModelTest(unittest.TestCase):
     def setUp(self):
         self.db = DatabaseFixture1(':memory:')
@@ -244,6 +270,30 @@ class ModelTest(unittest.TestCase):
         model.store()
         row = self.db._connection().execute('select * from test').fetchone()
         self.assertEqual(row['field_one'], 123)
+
+    def test_revision(self):
+        old_rev = self.db.revision
+        model = ModelFixture1()
+        model.add(self.db)
+        model.store()
+        self.assertEqual(model._revision, self.db.revision)
+        self.assertGreater(self.db.revision, old_rev)
+
+        mid_rev = self.db.revision
+        model2 = ModelFixture1()
+        model2.add(self.db)
+        model2.store()
+        self.assertGreater(model2._revision, mid_rev)
+        self.assertGreater(self.db.revision, model._revision)
+
+        # revision changed, so the model should be re-loaded
+        model.load()
+        self.assertEqual(model._revision, self.db.revision)
+
+        # revision did not change, so no reload
+        mod2_old_rev = model2._revision
+        model2.load()
+        self.assertEqual(model2._revision, mod2_old_rev)
 
     def test_retrieve_by_id(self):
         model = ModelFixture1()
@@ -355,7 +405,7 @@ class ModelTest(unittest.TestCase):
     def test_items(self):
         model = ModelFixture1(self.db)
         model.id = 5
-        self.assertEqual({('id', 5), ('field_one', 0)},
+        self.assertEqual({('id', 5), ('field_one', 0), ('field_two', '')},
                          set(model.items()))
 
     def test_delete_internal_field(self):
@@ -370,10 +420,28 @@ class ModelTest(unittest.TestCase):
 
 
 class FormatTest(unittest.TestCase):
-    def test_format_fixed_field(self):
+    def test_format_fixed_field_integer(self):
         model = ModelFixture1()
-        model.field_one = u'caf\xe9'
+        model.field_one = 155
         value = model.formatted().get('field_one')
+        self.assertEqual(value, u'155')
+
+    def test_format_fixed_field_integer_normalized(self):
+        """The normalize method of the Integer class rounds floats
+        """
+        model = ModelFixture1()
+        model.field_one = 142.432
+        value = model.formatted().get('field_one')
+        self.assertEqual(value, u'142')
+
+        model.field_one = 142.863
+        value = model.formatted().get('field_one')
+        self.assertEqual(value, u'143')
+
+    def test_format_fixed_field_string(self):
+        model = ModelFixture1()
+        model.field_two = u'caf\xe9'
+        value = model.formatted().get('field_two')
         self.assertEqual(value, u'caf\xe9')
 
     def test_format_flex_field(self):

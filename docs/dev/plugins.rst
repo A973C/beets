@@ -164,6 +164,10 @@ The events currently available are:
   created for a file.
   Parameters: ``item``, ``source`` path, ``destination`` path
 
+* `item_reflinked`: called with an ``Item`` object whenever a reflink is
+  created for a file.
+  Parameters: ``item``, ``source`` path, ``destination`` path
+
 * `item_removed`: called with an ``Item`` object every time an item (singleton
   or album's part) is removed from the library (even when its file is not
   deleted from disk).
@@ -195,6 +199,13 @@ The events currently available are:
   sparingly and only for tasks that can be done quickly. For most plugins, an
   import pipeline stage is a better choice (see :ref:`plugin-stage`).
   Parameters: ``task`` and ``session``.
+
+* `import_task_before_choice`: called after candidate search for an import task
+  before any decision is made about how/if to import or tag. Can be used to
+  present information about the task or initiate interaction with the user
+  before importing occurs. Return an importer action to take a specific action.
+  Only one handler may return a non-None result.
+  Parameters: ``task`` and ``session``
 
 * `import_task_choice`: called after a decision has been made about an import
   task. This event can be used to initiate further interaction with the user.
@@ -301,7 +312,7 @@ To access this value, say ``self.config['foo'].get()`` at any point in your
 plugin's code. The `self.config` object is a *view* as defined by the `Confuse`_
 library.
 
-.. _Confuse: https://confuse.readthedocs.org/
+.. _Confuse: https://confuse.readthedocs.io/en/latest/
 
 If you want to access configuration values *outside* of your plugin's section,
 import the `config` object from the `beets` module. That is, just put ``from
@@ -379,7 +390,7 @@ access to file tags. If you have created a descriptor you can add it through
 your plugins ``add_media_field()`` method.
 
 .. automethod:: beets.plugins.BeetsPlugin.add_media_field
-.. _MediaFile: https://mediafile.readthedocs.io/
+.. _MediaFile: https://mediafile.readthedocs.io/en/latest/
 
 
 Here's an example plugin that provides a meaningless new field "foo"::
