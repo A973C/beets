@@ -46,6 +46,8 @@ Major new features:
 
 Other new things:
 
+* Enable HTTPS for MusicBrainz by default and add configuration option
+  `https` for custom servers.
 * :doc:`/plugins/mpdstats`: Add a new `strip_path` option to help build the
   right local path from MPD information.
 * :doc:`/plugins/convert`: Conversion can now parallelize conversion jobs on
@@ -212,6 +214,8 @@ Other new things:
   used to target a maximum image filesize.
 * :doc:`/plugins/badfiles`: Checkers can now be run during import with the
   ``check_on_import`` config option.
+* :doc:`/plugins/export`: big speedups when `--include-keys` option is used
+  Thanks to :user:`ssssam`.
 
 Fixes:
 
@@ -353,6 +357,9 @@ Fixes:
   :bug:`3870`
 * Allow equals within ``--set`` value when importing.
   :bug:`2984`
+* :doc:`/plugins/lyrics`: Fix crashes for Tekstowo false positives
+  :bug:`3904`
+* :doc`/reference/cli`: Remove reference to rarfile version in link
 
 For plugin developers:
 
